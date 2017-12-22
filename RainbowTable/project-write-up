@@ -1,0 +1,64 @@
+Below is my write-up for this project
+
+
+Chris Magnemi
+Rainbow Tables – Write up
+Motivating Problem/Significance
+	While a defense exists and is completely effective if implemented correctly, rainbow tables are only recently becoming obsolete and are significant in regard to password cracking. Username/password combinations are typically stored in a table by some company, website, host, etc. A problem is that these tables are generally easy to obtain. Thus passwords are stored as hashes in these tables, since it is considered infeasible to find the preimage of a hash function. A rainbow table is a time/space tradeoff that can, if implemented perfectly with a very good reduction function, find the preimage of a given hash. However, properly salting passwords when storing them in a database renders rainbow tables ineffective. Still, most username/password databases are not salted so rainbow tables are technically not yet obsolete despite the existence of cryptographically secure defense.
+Summary
+	Rainbow tables are improved versions of a simpler algorithm created Martin Hellman in 1980 (1). Hellman’s original idea was to precompute a large table of hash chains, but to only store the starting and end points. Thus saving memory space compared to a massive lookup table, at the cost of increased computation time. Hellman’s method worked, but led to may chain collisions with the potential to render large portions of a pre-computed table useless. His algorithm was first improved drastically by Ronald Rivest in 1982 (2) who introduced the idea to begin the chains at ‘distinguished points’. Next, Philippe Oechslin proposed and proved what is now the standard for rainbow tables, that efficiency is further improved by using a unique reduction function at every link. Note that Oechslin did not use distinguished points per Rivest’s work. Oechslin created a program ‘Ophcrack’ and successfully cracked MS Windows passwords with a 99.9% success rate. Ophcrack was later improved upon by Zhu Shuanglei’s RainbowCrack (3)
+Technical Description
+	My rainbow table algorithm is a relatively standard implementation. It consists of three parts; precomputing the rainbow table, choosing the proper chain, and traversing said chain. The pre-computation of the table depends entirely on the number of chains and length of the chains. For each chain, my “makerb6(numchains, chainlength )” function generates a random six-letter lowercase password, which is saved as the starting point for the chain being computed. Then the password is hashed and reduced once for each link in the chain. Thus a an input for chainlength of 100 will result in 100 hashes and 100 reductions. Note that the reduction function is indexed based on the chain link number, thus the reduction function is different for each chain link. In terms of performance, a single chain is computed in O(2n) time where n is the chainlength since n hashes and n reductions are done. Then the total performance for pre-computation of the rainbow table is this multiplied by the number of chains, m. So total performance for precomputing the rainbow table is on the order of O(m*2n) time. 	An example of one simple row could be :
+Starting point: ‘abcdef’ –(hash)->  vqoet9480gb1v0= --(R0)-> ‘bcdefg’ –(hash)->vjnoi2n49971b= -(R1)-> ‘nextps’ –(hash)-> endpoint: vn29vb2ko2vqo8c=
+Now once we have a rainbow table, the next step is choosing the proper chain. My “choosechain” function checks if the desired hash is in the rainbow table, then essentially walks backward through a chain until a hash is found in the table. It does this through my “hashreduceloop” function, which composes the functions like so; hash(reduce_i(h)) where i is the chainlength. So the next loop would yield hash(reduce_i(hash(reduce_i-1(h)))). Thus time performance for choosing a chain can range from O(1) all the way to O(i + (i-1) + … + 1). A simple example, searching for a chain for hash “abcd” using 4-letter hashes could be:
+1)	Is ‘abcd’ in table?....NO
+2)	Is hash(R_chainlength(‘abcd’)) = ‘bcdef in table?.....No
+3)	Is hash(R_chainlength(hash(R_chainlength-1(‘abcd’)))) = ‘true’ in table?...Yes!!
+4)	Return the starting point corresponding with endpoint ‘true’
+Once a chain is found I call my “traversechain” function which simply begins at the chosen starting point, then hashes and reduces as if building a chain. Once a hash that matches the desired hash is found, the previous reduction is returned as the desired password. This function runs on O(2n) time where n is the number of steps until the desired hash is reached. This is multiplied by 2 for hash and reduction at each step. A simple example, say when looking for the 4-latter password ‘goal’ with hashvalues of 4-digit numbers and hash(‘goal’) = 8502:
+Starting point: ‘here’ –(hash)->1234-(R0)->’nope’-(hash)->8941-(R1)->’goal’-(hash)-> 8502..STOP
+We’ve found our desired hash, now take previous reduction as password.
+Now for the problem of false positives, where a chain is chosen incorrectly that does not contain the desired hash, traversechain will fail. This could occur if the desired hash is hashed and reduced backwards and a chain endpoint is found, but this chain doesn’t actually contain the desired chain. Rather it just so happens that this hash is an endpoint. Traversechain will scan the whole chain, find the desired hash is not in it, then tell choosechain to keep searching for another chain candidate. In the absolute worst and extremely unlikely case that choosechain chooses every chain and traversechain traverses every chain, time performance could be as large as O([i + (i-1) + … + 1] * 2n). Simply put, say we have two chains 
+‘here’ –(hash)->1234-(R0)->’nope’-(hash)->8941-(R1)->’goal’-(hash)-> 8502
+‘qwer’ –(hash)->9849-(R0)->’pass’-(hash)->9999-(R1)->’gisl’-(hash)-> 8290
+and our desired hash is 9999 for the password ‘pass’.
+Perhaps the first hashreduce loop does this: hash(R1(9999)) = 8502. Then we traverse the chain beginning with ‘here’ even thou our desired hash is not in that chain. So we continue. 
+Perhaps the next hash/reduce loop does this: hash(R1(hash(R0(9999)))) = 8290. Now we traverse the chain beginning with ‘qwer’ and we have found our desired hash in this chain. The first chain, ‘here’:8502, was a false positive.
+What I did
+	Unfortunately I was only able to crack 5/20 passwords. However, I know now that my implementation works and that with more time and a larger table I could have cracked many more. I set my table to be 205,000 chains by 1500 chain-links, this holding 307 million passwords total (without subtracting collisions). This is about 2 million less passwords then the total password-space of 26^6 (about 309 million). My table computed very slowly, it took about 2.8 hours. I believe this is because I computed it in the Python console then used Python’s “pickle” format to save the dictionary object. The file ended up being only about 6.6 MB. I believe this is so small because multiple endpoints came out to be the same, thus were overwritten in the dictionary. One big hiccup that Professor Straubing’s generous and very responsive emails helped me past was how to choose a chain. I was simply going backwards through each reduction function rather than composing the functions. Also, I would have benefitted from implementing a simpler reduction function early on. I spent too much time playing with reduction functions rather than implementing a working rainbow table, and then searching for a better reduction function afterwards. I tried to use conversions.xor, but found I was getting too many characters not a thru z and reformatting to lowercase letters resulted in far too many collisions. I also tried byte manipulation that I found on someone’s github profile (4), but realized his function was not great either. In the end, I settled on a simple reduction function of (hsh + chain link index) mod 26^6. 
+	Being do disappointed only being able to crack 5/20 passwords before this project is due, I will certainly be running my program overnight to create a much larger table and hopefully recover many more passwords. Thus far I only have ‘stmary’, ‘petdog’, ‘public’, ‘notell’, and ‘passwd’.
+
+How to run my code
+My best code is in the file: main.py
+To load my rainbow table with the pickle format I used, you have to call load_obj like so:
+•	rainbowTableVariable = load_obj(‘rainbow6good’)
+o	‘rainbow6good’ is the name of my best rainbow table
+o	Note that chainlength is 1500
+	I have two functions to run. One cracks a single password based on an inputted hash. The other cracks all the given passwords from a hashes[] array at the top of my code. Note that chainlength is 1500 for my table
+•	crack6(rainbowTableVariable, desiredHash, chainlength)
+o	returns the corresponding password to ‘desiredHash if can be found
+•	crackall(rainbowTableVariable, chainlength)
+So simply put to crack all the given passwords:
+1	execute all my code in “main.py”
+2	rainbowTableVariable = load_obj(‘rainbow6good’)
+3	crackall(rainbowTableVariable, 1500)
+
+Works Cited
+1: "Rainbow Table." Wikipedia. Wikimedia Foundation, 04 May 2017. Web. 09 May 2017.
+
+2: “Making a Faster Cryptanalytic Time-Memory Trade-off”,  Philippe Oechslin. http://pages.csam.montclair.edu/~perrieror/projects/CMPT495-clustering.and.security/resources/philippe.oechslin-making.a.faster.cryptanalytical.time.memory.trade.off.pdf
+3: "RainbowCrack." Wikipedia. Wikimedia Foundation, 27 Apr. 2017. Web. 09 May 2017.
+
+4: Jfmengels. "Jfmengels/rainbowtable-python." GitHub. N.p., n.d. Web. 09 May 2017.
+
+https://github.com/jfmengels/rainbowtable-python/blob/master/rainbowGenerator.py
+
+Other Sources
+
+"Rainbow Tables – Part 5 (Chains and Rainbow Tables)." A Stich in Time. N.p., 17 Aug. 2009. Web. 09 May 2017.
+
+Professor Straubing’s Emails
+
+
+
+
